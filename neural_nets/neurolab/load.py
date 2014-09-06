@@ -9,7 +9,7 @@ datafile = open('contest_data1.out', 'r')
 data = []
 dts = []
 for idx, row in enumerate(datafile):
-	if idx>1:# and idx<10000:
+	if idx>200000:# and idx<10000:
 		print idx
 
 		data_strings = row.strip().split('\t')
@@ -44,9 +44,6 @@ for idx, row in enumerate(datafile):
 
 data = numpy.array(data) 
 sorted_data = data[data[:,col_range].argsort()] # order by datetimes
-
-
-
 
 print 'saving data to pickle'
 #pickle.dump( sorted_data, open( "data.p", "wb" ) )

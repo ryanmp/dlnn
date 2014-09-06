@@ -51,11 +51,17 @@ for n in range(1, cpu_count()+1):
     t1 = time()
     print '%s processes: %s s' %(n, t1-t0)
 
-
 # I should dedicate a portion of the data to be untrained...
 data_input2 = data_in[1000:]
 ans = net(data_input2)
 print ans
+
+import matplotlib.pyplot
+import seaborn
+
+fig = matplotlib.pyplot.figure()
+ax1 = fig.add_subplot(211)
+
 
 
 
