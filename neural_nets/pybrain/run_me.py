@@ -141,7 +141,7 @@ def init_ann(num_inputs,num_hidden,num_outputs):
 def train_ann(net,ds):
 
     trainer = BackpropTrainer( net, dataset=ds, verbose=True, learningrate = 0.0005)
-    trainer.trainEpochs(200)
+    trainer.trainEpochs(20)
 
 
 def use_trained_ann(net,ds):
