@@ -11,6 +11,7 @@ from scipy import stats
 import logging
 import matplotlib.pyplot
 import seaborn
+import datetime
 
 # there are 4 different retail ids, 1-4
 # and 3 different item ids, 1-3
@@ -20,13 +21,14 @@ import seaborn
 
 # for running it just on specific retailer/item
 retailer = 2 #retailer 1-4
-item = 2 #item 1-3
+item = 1 #item 1-3
 
 # just describes source data
 ncols = 72
 
 # total for this test...
-nrows = 49030 # 287420 is the first 9999999
+
+percent_in_sample = .8
 
 col_training_set = [i for i in xrange(1,72)] + [73]  # cols w r^2 > .05
 # this can also be used to just grab a set of columns, like =[3, 10, 30, ...]
@@ -34,17 +36,16 @@ col_training_set = [i for i in xrange(1,72)] + [73]  # cols w r^2 > .05
 l = len(col_training_set)
 
 # these two determine the maximum training time
-max_loops = 7
-min_loops = 1
+max_loops = 20
+min_loops = 8
 max_total = 400
-max_functions = 3 # per loop
+max_functions = 5 # per loop
 
 # used for the genetic training algo
 max_population = 17
 
 # anything smaller than nrows...
 # the rest wil be used for out_of_sample_testing
-training_set_size = 43000
 
 overfitting_threshold = .3
 
@@ -52,7 +53,7 @@ overfitting_threshold = .3
 #network_config = (ncols-11,ncols-11,15,1)
 #network_config = (l,128,64,32,16,8,4,2,1)
 
-network_config = (l,l*3,1)
+network_config = (l,5*l,1)
 
 def main():
 
@@ -61,7 +62,7 @@ def main():
 
 	import cPickle as pickle # persistant storage type
 
-	sorted_data_full = process_data()
+	#sorted_data_full = process_data()
 	#print 'saving data to pickle'
 	#pickle.dump( sorted_data_full, open( "data.p", "wb" ) )
 	#print 'loading data from pickle'
@@ -73,10 +74,16 @@ def main():
 		if i[1] == retailer and i[2] == item:
 			sorted_data.append(i)
 	print 'total with this selection:', len(sorted_data)
+
+	nrows = len(sorted_data) # 287420 is the first 9999999
+	training_set_size = int(nrows*percent_in_sample)
+
 	sorted_data = sorted_data[:nrows]
 	sorted_data = numpy.array(sorted_data)
 
 	print 'just running on first: ',len(sorted_data),' observations'
+	print 'reserving last',(1-percent_in_sample)*100,'percent for out-of-sample'
+	print 'so that means:',training_set_size,'= in &',nrows-training_set_size,'= out'
 
 	#cols = find_corr(sorted_data)
 	#print cols
@@ -90,14 +97,14 @@ def main():
 	#graph_data(sorted_data, [0])
 
 	logging.info('starting with params... max_functions: ' + str(max_functions) + ', total_rows: ' + str(nrows) + ', training_set_size: ' + str(training_set_size))
-	logging.info('running on retailer/item: ' + str(retailer) + ' ' +  str(item))
+	logging.info('running on retailer/item: ' +  str(retailer) +  str(item))
 	logging.info('col set:' + str(col_training_set))
 
 	#net = None
-	net = build_ffnet(sorted_data)
+	net = build_ffnet(sorted_data,training_set_size)
 	#calc_stats(net,sorted_data)
-	graph_it(net,sorted_data)
-	graph_weekly(net,sorted_data)
+	#graph_it(net,sorted_data)
+	#graph_weekly(net,sorted_data)
 
 	return net, sorted_data, sorted_data_full
 
@@ -147,7 +154,7 @@ def graph_data(data, which_cols):
 
 def process_data():
 
-	import datetime
+
 	from dateutil import parser
 
 	#datafile = open('SampleDataSmall.csv', 'r')
@@ -201,7 +208,7 @@ def process_data():
 
 
 
-def build_ffnet(sorted_data):
+def build_ffnet(sorted_data,training_set_size):
 
 	logging.info('starting new run! -----------------------------')
 	print 'defining network'
@@ -231,6 +238,8 @@ def build_ffnet(sorted_data):
 	#networkx.draw_graphviz(net.graph, prog='dot')
 	#pylab.show()
 
+	graph_weekly(net, sorted_data,training_set_size) # just saving a pic
+
 	logging.info('network built as: ' + str(network_config) )
 
 	print "TRAINING NETWORK..."
@@ -239,7 +248,7 @@ def build_ffnet(sorted_data):
 	#net.train_rprop(data_in_training2, data_target_training2, a=1.9, b=0.1, mimin=1e-06, mimax=15.0, xmi=0.5, maxiter=max_functions, disp=1)
 	###net.train_momentum(data_in_training2, data_target_training2, eta=0.2, momentum=0.1, maxiter=max_functions, disp=1)
 	stats = []
-	biggest = 0
+	smallest_error = 1000
 	total = 0
 	try:
 		for i in xrange(min_loops,max_loops):
@@ -251,14 +260,16 @@ def build_ffnet(sorted_data):
 			net.train_tnc(data_in_training2, data_target_training2, maxfun = max_functions+i, messages=1)
 			#net.train_rprop(data_in_training2, data_target_training2, a=1.2, b=0.5, mimin=1e-06, mimax=50.0, xmi=0.1, maxiter=max_functions*20, disp=1)
 
-			in0, out0, s1, s2 = calc_stats(net,sorted_data)
-			stats.append((in0, out0,total, s1, s2))
+			graph_weekly(net, sorted_data,training_set_size) # just saving a pic
+
+			in0, out0, s1, s2, mape_weekly_all = calc_stats(net,sorted_data,training_set_size)
+			stats.append((in0, out0,total, s1, s2, mape_weekly_all))
 			#if out0<=(biggest/1.4) and in0>.7:
-			if out0<=(biggest/9) and in0>overfitting_threshold:
-				print 'breaking out early'
-				break
-			if out0 > biggest: # found a new best
-				biggest = out0
+			#if out0<=(smallest_error/4) and in0>overfitting_threshold:
+			#	print 'we hit overfitting threshold - breaking out early'
+			#	break
+			if mape_weekly_all < smallest_error: # found a new best
+				smallest_error = mape_weekly_all
 				savenet(net, 'best_net.n')
 	except KeyboardInterrupt: # this way command-c just breaks out of this loop
 		pass
@@ -269,13 +280,16 @@ def build_ffnet(sorted_data):
 	#net.train_bfgs(data_in_training2, data_target_training2, maxfun = max_functions, disp=1)
 	stats = sorted(stats, reverse=True, key=lambda x: x[1])
 	for i in stats:
-		print i[1], i[2], i[3], i[4]
+		temp_string = ''
+		for x in i:
+			temp_string += str(x) + ','
+		print temp_string
 
 	net = loadnet('best_net.n')
 	return net
 
 
-def calc_stats(net, sorted_data):
+def calc_stats(net, sorted_data,training_set_size):
 
 	print 'calc stats'
 
@@ -293,6 +307,8 @@ def calc_stats(net, sorted_data):
 
 	nn_ans = [i[0] for i in net(data_input2)]
 
+	print 'stats on:',len(nn_ans[:training_set_size]),len(nn_ans[training_set_size:])
+
 	s1 = sum(nn_ans[:training_set_size])
 	s2 = sum(real_ans[:training_set_size])
 	print 'i.s. sums (nn/real):',s1,s2
@@ -306,10 +322,10 @@ def calc_stats(net, sorted_data):
 	print('r^2 in: ' + str(r_squared_in) + ', out:' + str(r_squared_out))
 	logging.info('r^2 in: ' + str(r_squared_in) + ', out:' + str(r_squared_out))
 
-	wmape_in = wmape(nn_ans[:training_set_size], real_ans[:training_set_size])
-	wmape_out = wmape(nn_ans[training_set_size:], real_ans[training_set_size:])
-	print('mape in: ' + str(wmape_in) + ', out:' + str(wmape_out))
-	logging.info('mape in: ' + str(wmape_in) + ', out:' + str(wmape_out))
+	mape_in = mape(nn_ans[:training_set_size], real_ans[:training_set_size])
+	mape_out = mape(nn_ans[training_set_size:], real_ans[training_set_size:])
+	print('mape in: ' + str(mape_in) + ', out:' + str(mape_out))
+	logging.info('mape in: ' + str(mape_in) + ', out:' + str(mape_out))
 
 	start_dt = min(sorted_data[:,-2])
 	end_dt = max(sorted_data[:,-2])
@@ -335,18 +351,17 @@ def calc_stats(net, sorted_data):
 	r_squared_weekly_in = scipy.stats.pearsonr(weekly_real_s[:middle_week_split], weekly_nn_s[:middle_week_split])[0]**2
 	r_squared_weekly_out = scipy.stats.pearsonr(weekly_real_s[middle_week_split:], weekly_nn_s[middle_week_split:])[0]**2
 
-
 	print 'r^2 weekly_all/in/out: ', r_squared_weekly_all,r_squared_weekly_in,r_squared_weekly_out
 	logging.info('r^2 weekly_all/in/out: '+ str(r_squared_weekly_all) + str(r_squared_weekly_in) + str(r_squared_weekly_out))
 
-	mape_weekly_all = wmape(weekly_real_s, weekly_nn_s)
+	mape_weekly_all = mape(weekly_real_s, weekly_nn_s)
 	print 'mape weekly_all: ', mape_weekly_all
 	logging.info('mape weekly_all: '+ str(mape_weekly_all))
 
-	return r_squared_in, r_squared_out, s1, s2
+	return r_squared_in, r_squared_out, s1, s2, mape_weekly_all
 
 
-def wmape(xs,ys):
+def mape(xs,ys):
 	total = 0
 	count = 0
 	for f,a in zip(xs,ys):
@@ -354,14 +369,16 @@ def wmape(xs,ys):
 			total += abs((a-f)/a)
 			count += 1
 
-	ret = -999999
+	ret = 999999
 	if count>0:
 		ret = float(total)/count
 
 	return ret
 
 
-def graph_weekly(net, sorted_data):
+def graph_weekly(net, sorted_data,training_set_size):
+
+	print 'save weekly graph'
 
 	start = 0
 	end = len(sorted_data)-1
@@ -423,9 +440,13 @@ def graph_weekly(net, sorted_data):
 	ax4.set_ylabel('nn_out')
 	ax4.set_title('out of sample')
 
+	#fig.show()
+
 	fig.tight_layout()
-	os.system('say "check out that graph"')
-	fig.show()
+	#os.system('say "check out that graph"')
+	ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+	fig.savefig(ts + '.png')
+
 
 
 def graph_it(net, sorted_data):
@@ -475,8 +496,11 @@ def graph_it(net, sorted_data):
 	ax4.set_title('out of sample')
 
 	fig.tight_layout()
-	os.system('say "check out that graph"')
-	fig.show()
+	#os.system('say "check out that graph"')
+	ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+	fig.savefig(ts + '.png')
+
+
 
 if __name__ == '__main__':
 	print 'starting main'
